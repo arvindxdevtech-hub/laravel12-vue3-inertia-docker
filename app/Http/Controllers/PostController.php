@@ -6,6 +6,10 @@ use App\Models\Post;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use App\Jobs\TrackPostActivity;
+
 
 class PostController extends Controller
 {
@@ -15,7 +19,10 @@ class PostController extends Controller
 
     public function index()
     {
-        $posts = Post::latest()->get();
+        $posts = Cache::remember('posts', 600, function () {
+            Log::info('Posts loaded from MySQL hello');
+            return Post::latest()->get();
+        });
 
         return Inertia::render('Posts/Index', [
             'posts' => $posts,
@@ -41,12 +48,20 @@ class PostController extends Controller
             'status' => ['required', 'boolean'],
         ]);
 
-        Post::create([
+        $post = Post::create([
             'title' => $validated['title'],
             'slug' => Str::slug($validated['title']),
             'content' => $validated['content'],
             'status' => $validated['status'],
         ]);
+
+        TrackPostActivity::dispatch(
+            'post_created',
+            $post->id,
+            'New post created: ' . $post->title
+        );
+
+        Cache::forget('posts');
 
         return redirect()
             ->route('posts.index')
@@ -89,6 +104,8 @@ class PostController extends Controller
             'status' => $validated['status'],
         ]);
 
+        Cache::forget('posts');
+
         return redirect()
             ->route('posts.index')
             ->with('success', 'Post updated successfully.');
@@ -100,6 +117,7 @@ class PostController extends Controller
     public function destroy(Post $post)
     {
         $post->delete();
+        Cache::forget('posts');
 
         return redirect()
             ->route('posts.index')
